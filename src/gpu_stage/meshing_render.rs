@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 use std::rc::Rc;
 
-use bytemuck::{Pod, Zeroable};
+use bytemuck::{offset_of, Pod, Zeroable};
 use nalgebra_glm as glm;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
@@ -233,14 +233,12 @@ struct RenderPushConstants {
 
 struct RenderResources {
     shader: ShaderModule,
-    depth_desc: TextureDescriptor<'static>,
     pipeline_layout: PipelineLayout,
 }
 
 struct RenderDynamicResources {
     output_target: Rc<RenderTarget>,
     pipeline: RenderPipeline,
-    depth_view: TextureView,
 }
 
 pub struct Render {
@@ -255,21 +253,6 @@ impl RenderResources {
             source: ShaderSource::Wgsl(include_str!("./render.wgsl").into()),
         });
 
-        let depth_desc = TextureDescriptor {
-            label: Some("render depth_desc"),
-            size: Extent3d {
-                width: ctx.surface_config.width,
-                height: ctx.surface_config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Depth32Float,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        };
-
         let pipeline_layout = ctx
             .device
             .create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -283,7 +266,6 @@ impl RenderResources {
 
         Self {
             shader,
-            depth_desc,
             pipeline_layout,
         }
     }
@@ -291,10 +273,6 @@ impl RenderResources {
 
 impl RenderDynamicResources {
     fn new(ctx: &WgpuContext, res: &mut RenderResources, output_target: Rc<RenderTarget>) -> Self {
-        res.depth_desc.size.width = output_target.info.width;
-        res.depth_desc.size.height = output_target.info.height;
-        let depth_texture = ctx.device.create_texture(&res.depth_desc);
-        let depth_view = depth_texture.create_view(&TextureViewDescriptor::default());
         let pipeline = ctx
             .device
             .create_render_pipeline(&RenderPipelineDescriptor {
@@ -309,12 +287,12 @@ impl RenderDynamicResources {
                         attributes: &[
                             VertexAttribute {
                                 format: VertexFormat::Uint32,
-                                offset: 0,
+                                offset: offset_of!(FaceInstance, color) as u64,
                                 shader_location: 0,
                             },
                             VertexAttribute {
                                 format: VertexFormat::Uint32,
-                                offset: 4,
+                                offset: offset_of!(FaceInstance, info) as u64,
                                 shader_location: 1,
                             },
                         ],
@@ -330,14 +308,14 @@ impl RenderDynamicResources {
                     strip_index_format: None,
                     front_face: FrontFace::Ccw,
                     cull_mode: Some(Face::Back),
-                    unclipped_depth: false,
+                    unclipped_depth: true,
                     polygon_mode: PolygonMode::Fill,
                     conservative: false,
                 },
                 depth_stencil: Some(DepthStencilState {
                     format: TextureFormat::Depth32Float,
                     depth_write_enabled: true,
-                    depth_compare: CompareFunction::Less,
+                    depth_compare: CompareFunction::Greater,
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -348,7 +326,6 @@ impl RenderDynamicResources {
         Self {
             output_target,
             pipeline,
-            depth_view,
         }
     }
 }
@@ -383,9 +360,14 @@ impl Render {
                     },
                 })],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                    view: &self.dynamic.depth_view,
+                    view: self
+                        .dynamic
+                        .output_target
+                        .depth_target
+                        .as_ref()
+                        .expect("no depth target"),
                     depth_ops: Some(Operations {
-                        load: LoadOp::Clear(1.0),
+                        load: LoadOp::Clear(0.0),
                         store: StoreOp::Store,
                     }),
                     stencil_ops: None,

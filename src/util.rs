@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use std::rc::Rc;
 use wgpu::{Texture, TextureFormat, TextureView};
 
 use crate::wgpu_context::WgpuContext;
@@ -20,7 +21,8 @@ impl From<&WgpuContext<'_>> for RenderTargetInfo {
 }
 
 pub struct RenderTarget {
-    pub render_target: TextureView,
+    pub render_target: Rc<TextureView>,
+    pub depth_target: Option<Rc<TextureView>>,
     pub info: RenderTargetInfo,
 }
 

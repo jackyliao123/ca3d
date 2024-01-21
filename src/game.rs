@@ -12,6 +12,7 @@ use crate::chunk::Chunk;
 use crate::chunk_manager::ChunkManager;
 use crate::gpu_stage::bloom::Bloom;
 use crate::gpu_stage::meshing_render::{Meshing, Render};
+use crate::gpu_stage::overlay::Overlay;
 use crate::gpu_stage::simulate::Simulate;
 use crate::gpu_stage::tonemap::Tonemap;
 use crate::key_tracker::KeyTracker;
@@ -38,6 +39,7 @@ pub struct Game {
     pub simulate: Simulate,
     pub meshing: Meshing,
     pub render: Render,
+    pub overlay: Overlay,
     pub bloom: Bloom,
     pub tonemap: Tonemap,
 }
@@ -48,7 +50,8 @@ impl Game {
 
         let tonemap = Tonemap::new(ctx, Rc::new(RenderTargetInfo::from(ctx)));
         let bloom = Bloom::new(ctx, tonemap.input_target());
-        let render = Render::new(ctx, bloom.input_target());
+        let overlay = Overlay::new(ctx, bloom.input_target());
+        let render = Render::new(ctx, overlay.input_target());
         let meshing = Meshing::new(ctx, &chunk_manager);
         let simulate = Simulate::new(ctx, &chunk_manager);
 
@@ -70,6 +73,7 @@ impl Game {
             simulate,
             meshing,
             render,
+            overlay,
             bloom,
             tonemap,
         };
@@ -148,11 +152,10 @@ impl Game {
 
         self.position += abs_movement * self.speed;
 
-        self.projection = glm::perspective_zo(
+        self.projection = glm::reversed_infinite_perspective_rh_zo(
             ctx.surface_config.width as f32 / ctx.surface_config.height as f32,
             self.fov.to_radians(),
             0.1,
-            1000.0,
         );
         let view: glm::Mat4 = glm::identity();
         let view = glm::rotate_x(&view, -self.look.x.to_radians());
@@ -173,6 +176,10 @@ impl Game {
         ctx.profiler.profile(encoder, "render", |encoder| {
             self.render
                 .update(ctx, encoder, &self.chunk_manager, meshing_result, &mvp);
+        });
+
+        ctx.profiler.profile(encoder, "overlay", |encoder| {
+            self.overlay.update(ctx, encoder, &self.projection, &view);
         });
 
         ctx.profiler.profile(encoder, "bloom", |encoder| {
@@ -205,7 +212,8 @@ impl Game {
         self.tonemap
             .resize(ctx, Rc::new(RenderTargetInfo::from(ctx)));
         self.bloom.resize(ctx, self.tonemap.input_target());
-        self.render.resize(ctx, self.bloom.input_target());
+        self.overlay.resize(ctx, self.bloom.input_target());
+        self.render.resize(ctx, self.overlay.input_target());
     }
 
     pub fn input(&mut self, event: &WindowEvent, event_loop_proxy: &EventLoopProxy<UserEvent>) {

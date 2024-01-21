@@ -331,7 +331,8 @@ impl DynamicResources {
             .unzip();
 
         let input_target = Rc::new(RenderTarget {
-            render_target: renderbuffer_view,
+            render_target: renderbuffer_view.into(),
+            depth_target: None,
             info: RenderTargetInfo {
                 format: res.texture_desc.format,
                 width: res.texture_desc.size.width,

@@ -213,7 +213,8 @@ impl DynamicResources {
         });
 
         let input_target = Rc::new(RenderTarget {
-            render_target: renderbuffer_view,
+            render_target: renderbuffer_view.into(),
+            depth_target: None,
             info: RenderTargetInfo {
                 format: res.renderbuffer_desc.format,
                 width: res.renderbuffer_desc.size.width,

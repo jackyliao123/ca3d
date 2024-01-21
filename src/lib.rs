@@ -91,6 +91,7 @@ pub async fn start() {
                     | wgpu::Features::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING
                     | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
                     | wgpu::Features::PUSH_CONSTANTS
+                    | wgpu::Features::DEPTH_CLIP_CONTROL
                 },
                 required_limits: if cfg!(target_arch = "wasm32") {
                     wgpu::Limits {
