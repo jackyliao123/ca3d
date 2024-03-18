@@ -86,7 +86,7 @@ impl Game {
 
         let mut blocks = vec![0u32; 64 * 64 * 64];
 
-        let init_size = 1;
+        let init_size = 2;
 
         for cx in 0..init_size {
             for cy in 0..init_size {

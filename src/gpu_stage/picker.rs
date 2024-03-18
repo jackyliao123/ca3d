@@ -174,7 +174,13 @@ impl Picker {
             .cpu_buffer
             .slice(..)
             .map_async(MapMode::Read, |result| {
-                result.expect("Failed to map buffer");
+                match result {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::error!("Failed to map buffer: {:?}", e);
+                    }
+                }
+                // result.expect("Failed to map buffer");
             });
     }
 }
