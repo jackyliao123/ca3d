@@ -1,9 +1,9 @@
-pub struct SharedResourceSizeManager<T> {
+pub struct ResourceSizeHelper<T> {
     data: Option<T>,
     created_size: u32,
 }
 
-impl<T> Default for SharedResourceSizeManager<T> {
+impl<T> Default for ResourceSizeHelper<T> {
     fn default() -> Self {
         Self {
             data: None,
@@ -12,7 +12,7 @@ impl<T> Default for SharedResourceSizeManager<T> {
     }
 }
 
-impl<T> SharedResourceSizeManager<T> {
+impl<T> ResourceSizeHelper<T> {
     pub fn new() -> Self {
         Default::default()
     }

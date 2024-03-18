@@ -25,8 +25,8 @@ fn vs_wireframe(@location(0) pos: vec4<f32>, in: InstanceInput) -> VertexOutput 
 
     var t: f32 = pos.w;
 
-    if (t > 0.5 && screen_offset2.z < 0.0 || t < 0.5 && screen_offset1.z < 0.0) {
-        t = -screen_offset1.z / (screen_offset2.z - screen_offset1.z);
+    if (t > 0.5 && screen_offset2.z > 0.0 || t < 0.5 && screen_offset1.z > 0.0) {
+        t = -screen_offset1.z / (screen_offset2.z - screen_offset1.z) + 1e-6;
     }
 
     let depth = mix(screen_offset1, screen_offset2, t).z;

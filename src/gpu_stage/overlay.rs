@@ -1,13 +1,15 @@
+use crate::resource_size_helper::ResourceSizeHelper;
 use crate::util::{RenderTarget, RenderTargetInfo};
 use crate::wgpu_context::WgpuContext;
 use bytemuck::{offset_of, Pod, Zeroable};
 use nalgebra_glm as glm;
+use std::cell::RefCell;
 use std::mem::size_of;
 use std::rc::Rc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
-const CYLINDER_SEGMENTS: u32 = 6;
+const CYLINDER_SEGMENTS: u32 = 60;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable, Default)]
@@ -19,7 +21,7 @@ struct PushConstants {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable, Default)]
 struct WireframeInstanceInput {
-    color: glm::IVec4,
+    color: glm::Vec4,
     offset1: glm::Vec4,
     offset2: glm::Vec4,
 }
@@ -30,6 +32,8 @@ struct Resources {
     pipeline_layout: PipelineLayout,
     cylinder_vertex_buffer: Buffer,
     sphere_vertex_buffer: Buffer,
+    cylinder_instance_buffer: ResourceSizeHelper<Buffer>,
+    sphere_instance_buffer: ResourceSizeHelper<Buffer>,
 }
 
 struct DynamicResources {
@@ -41,8 +45,8 @@ struct DynamicResources {
 pub struct Overlay {
     res: Resources,
     dynamic: DynamicResources,
-    line_instances: Vec<WireframeInstanceInput>,
-    sphere_instances: Vec<WireframeInstanceInput>,
+    cylinder_instances: RefCell<Vec<WireframeInstanceInput>>,
+    sphere_instances: RefCell<Vec<WireframeInstanceInput>>,
 }
 
 impl Resources {
@@ -78,24 +82,23 @@ impl Resources {
                 }],
             });
 
-        let mut cylinderVertices = vec![];
+        let mut cylinder_vertices: Vec<glm::Vec4> = vec![];
         for i in 0..CYLINDER_SEGMENTS {
-            let angle1 = (i as f32 / CYLINDER_SEGMENTS as f32).to_radians();
-            let angle2 = ((i + 1) as f32 / CYLINDER_SEGMENTS as f32).to_radians();
-            let loc1 = glm::to_
-                glm::vec2(cosf(angle1), sinf(angle1));
-            let loc2 = glm::vec2(cosf(angle2), sinf(angle2));
-            cylinderVertices.emplace_back(loc1, 0.0, 0.0);
-            cylinderVertices.emplace_back(loc1, 0.0, 1.0);
-            cylinderVertices.emplace_back(loc2, 0.0, 0.0);
-            cylinderVertices.emplace_back(loc2, 0.0, 0.0);
-            cylinderVertices.emplace_back(loc1, 0.0, 1.0);
-            cylinderVertices.emplace_back(loc2, 0.0, 1.0);
+            let angle1 = (i as f32 / CYLINDER_SEGMENTS as f32) * 2.0 * std::f32::consts::PI;
+            let angle2 = ((i + 1) as f32 / CYLINDER_SEGMENTS as f32) * 2.0 * std::f32::consts::PI;
+            let loc1 = glm::vec2(angle1.cos(), angle1.sin());
+            let loc2 = glm::vec2(angle2.cos(), angle2.sin());
+            cylinder_vertices.push(glm::vec4(loc1.x, loc1.y, 0.0, 0.0));
+            cylinder_vertices.push(glm::vec4(loc2.x, loc2.y, 0.0, 0.0));
+            cylinder_vertices.push(glm::vec4(loc1.x, loc1.y, 0.0, 1.0));
+            cylinder_vertices.push(glm::vec4(loc2.x, loc2.y, 0.0, 0.0));
+            cylinder_vertices.push(glm::vec4(loc2.x, loc2.y, 0.0, 1.0));
+            cylinder_vertices.push(glm::vec4(loc1.x, loc1.y, 0.0, 1.0));
         }
 
         let cylinder_vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("overlay cylinder_vertex_buffer"),
-            contents: &[],
+            contents: bytemuck::cast_slice(&cylinder_vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
 
@@ -111,6 +114,8 @@ impl Resources {
             pipeline_layout,
             cylinder_vertex_buffer,
             sphere_vertex_buffer,
+            cylinder_instance_buffer: Default::default(),
+            sphere_instance_buffer: Default::default(),
         }
     }
 }
@@ -206,10 +211,20 @@ impl Overlay {
         Self {
             res,
             dynamic,
-            line_instances: vec![],
-            sphere_instances: vec![],
+            cylinder_instances: RefCell::new(vec![]),
+            sphere_instances: RefCell::new(vec![]),
         }
     }
+
+    pub fn line(&self, color: glm::Vec4, line: (glm::Vec3, glm::Vec3)) {
+        let mut cylinder_instances = self.cylinder_instances.borrow_mut();
+        cylinder_instances.push(WireframeInstanceInput {
+            color,
+            offset1: glm::vec4(line.0.x, line.0.y, line.0.z, 1.0),
+            offset2: glm::vec4(line.1.x, line.1.y, line.1.z, 1.0),
+        });
+    }
+
     pub fn resize(&mut self, ctx: &WgpuContext, output_target: Rc<RenderTarget>) {
         self.dynamic = DynamicResources::new(ctx, &mut self.res, output_target);
     }
@@ -228,11 +243,15 @@ impl Overlay {
 
     pub fn update(
         &mut self,
-        _ctx: &WgpuContext,
+        ctx: &WgpuContext,
         command_encoder: &mut CommandEncoder,
         proj: &glm::Mat4x4,
         view: &glm::Mat4x4,
     ) {
+        self.line(
+            glm::vec4(1.0, 0.0, 1.0, 1.0),
+            (glm::vec3(0.0, 0.0, 0.0), glm::vec3(1.0, 1.0, 0.0)),
+        );
         {
             let mut render_pass = command_encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("overlay render_pass"),
@@ -265,12 +284,35 @@ impl Overlay {
                     view: *view,
                 }]),
             );
-            render_pass.set_vertex_buffer(0, self.res.cylinder_vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.res.cylinder_vertex_buffer.slice(..));
-            render_pass.draw(
-                0..self.res.cylinder_vertex_buffer.size() as u32,
-                0..self.line_instances.len() as u32,
+
+            let mut cylinder_instances = self.cylinder_instances.borrow_mut();
+
+            let cylinder_instance_buffer = self.res.cylinder_instance_buffer.get_or_recreate(
+                cylinder_instances.len() as u32,
+                |size| {
+                    ctx.device.create_buffer(&BufferDescriptor {
+                        label: Some("overlay cylinder_instance_buffer"),
+                        size: size as u64 * size_of::<WireframeInstanceInput>() as u64,
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    })
+                },
             );
+
+            ctx.queue.write_buffer(
+                cylinder_instance_buffer,
+                0,
+                bytemuck::cast_slice(&cylinder_instances),
+            );
+
+            render_pass.set_vertex_buffer(0, self.res.cylinder_vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, cylinder_instance_buffer.slice(..));
+            render_pass.draw(
+                0..self.res.cylinder_vertex_buffer.size() as u32 / size_of::<glm::Vec4>() as u32,
+                0..1,
+            );
+
+            cylinder_instances.clear();
         }
     }
 }

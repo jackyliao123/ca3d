@@ -13,6 +13,7 @@ use crate::chunk_manager::ChunkManager;
 use crate::gpu_stage::bloom::Bloom;
 use crate::gpu_stage::meshing_render::{Meshing, Render};
 use crate::gpu_stage::overlay::Overlay;
+use crate::gpu_stage::picker::Picker;
 use crate::gpu_stage::simulate::Simulate;
 use crate::gpu_stage::tonemap::Tonemap;
 use crate::key_tracker::KeyTracker;
@@ -39,6 +40,7 @@ pub struct Game {
     pub simulate: Simulate,
     pub meshing: Meshing,
     pub render: Render,
+    pub picker: Picker,
     pub overlay: Overlay,
     pub bloom: Bloom,
     pub tonemap: Tonemap,
@@ -51,7 +53,8 @@ impl Game {
         let tonemap = Tonemap::new(ctx, Rc::new(RenderTargetInfo::from(ctx)));
         let bloom = Bloom::new(ctx, tonemap.input_target());
         let overlay = Overlay::new(ctx, bloom.input_target());
-        let render = Render::new(ctx, overlay.input_target());
+        let picker = Picker::new(ctx, overlay.input_target());
+        let render = Render::new(ctx, picker.input_target());
         let meshing = Meshing::new(ctx, &chunk_manager);
         let simulate = Simulate::new(ctx, &chunk_manager);
 
@@ -73,6 +76,7 @@ impl Game {
             simulate,
             meshing,
             render,
+            picker,
             overlay,
             bloom,
             tonemap,
@@ -82,7 +86,7 @@ impl Game {
 
         let mut blocks = vec![0u32; 64 * 64 * 64];
 
-        let init_size = 6;
+        let init_size = 1;
 
         for cx in 0..init_size {
             for cy in 0..init_size {
@@ -178,6 +182,10 @@ impl Game {
                 .update(ctx, encoder, &self.chunk_manager, meshing_result, &mvp);
         });
 
+        ctx.profiler.profile(encoder, "picker", |encoder| {
+            self.picker.update(ctx, encoder);
+        });
+
         ctx.profiler.profile(encoder, "overlay", |encoder| {
             self.overlay.update(ctx, encoder, &self.projection, &view);
         });
@@ -213,7 +221,8 @@ impl Game {
             .resize(ctx, Rc::new(RenderTargetInfo::from(ctx)));
         self.bloom.resize(ctx, self.tonemap.input_target());
         self.overlay.resize(ctx, self.bloom.input_target());
-        self.render.resize(ctx, self.overlay.input_target());
+        self.picker.resize(ctx, self.overlay.input_target());
+        self.render.resize(ctx, self.picker.input_target());
     }
 
     pub fn input(&mut self, event: &WindowEvent, event_loop_proxy: &EventLoopProxy<UserEvent>) {
@@ -317,5 +326,9 @@ impl Game {
             .show(ctx, |ui| {
                 wgpu_ctx.profiler.ui(ui);
             });
+    }
+
+    pub fn after_submit(&self) {
+        self.picker.after_submit();
     }
 }

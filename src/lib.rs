@@ -5,7 +5,7 @@ mod game;
 mod gpu_stage;
 mod key_tracker;
 mod profiler;
-mod shared_resource_helper;
+mod resource_size_helper;
 mod user_event;
 mod util;
 mod wgpu_context;
@@ -170,8 +170,7 @@ pub async fn start() {
         None,
         Some(4096),
     );
-    let mut egui_renderer =
-        egui_wgpu::renderer::Renderer::new(&ctx.device, surface_format, None, 1);
+    let mut egui_renderer = egui_wgpu::Renderer::new(&ctx.device, surface_format, None, 1);
     let mut cursor_locked = false;
 
     let mut game = Game::new(&ctx);
@@ -310,7 +309,7 @@ pub async fn start() {
                                     );
                                 }
 
-                                let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
+                                let screen_descriptor = egui_wgpu::ScreenDescriptor {
                                     size_in_pixels: [
                                         ctx.surface_config.width,
                                         ctx.surface_config.height,
@@ -359,6 +358,7 @@ pub async fn start() {
                                 ctx.profiler.end_frame(&mut encoder);
                                 ctx.queue.submit(Some(encoder.finish()));
                                 ctx.profiler.after_submit();
+                                game.after_submit();
                                 surface_texture.present();
                             }
                         }

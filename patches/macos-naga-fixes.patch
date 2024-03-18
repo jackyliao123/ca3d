@@ -1,0 +1,121 @@
+diff --git a/src/back/msl/writer.rs b/src/back/msl/writer.rs
+index f900add..02d1f8d 100644
+--- a/src/back/msl/writer.rs
++++ b/src/back/msl/writer.rs
+@@ -232,13 +232,19 @@ impl<'a> Display for TypeContext<'a> {
+     }
+ }
+ 
++enum PointerType {
++    Pointer,
++    Reference,
++    Direct,
++}
++
+ struct TypedGlobalVariable<'a> {
+     module: &'a crate::Module,
+     names: &'a FastHashMap<NameKey, String>,
+     handle: Handle<crate::GlobalVariable>,
+     usage: valid::GlobalUse,
+     binding: Option<&'a super::ResolvedBinding>,
+-    reference: bool,
++    pointer_type: PointerType,
+ }
+ 
+ impl<'a> TypedGlobalVariable<'a> {
+@@ -275,7 +281,7 @@ impl<'a> TypedGlobalVariable<'a> {
+         };
+ 
+         let (space, access, reference) = match var.space.to_msl_name() {
+-            Some(space) if self.reference => {
++            Some(space) => {
+                 let access = if var.space.needs_access_qualifier()
+                     && !self.usage.contains(valid::GlobalUse::WRITE)
+                 {
+@@ -283,7 +289,11 @@ impl<'a> TypedGlobalVariable<'a> {
+                 } else {
+                     ""
+                 };
+-                (space, access, "&")
++                match self.pointer_type {
++                    PointerType::Pointer => (space, access, "*"),
++                    PointerType::Reference => (space, access, "&"),
++                    PointerType::Direct => ("", "", ""),
++                }
+             }
+             _ => ("", "", ""),
+         };
+@@ -1451,7 +1461,11 @@ impl<W: Write> Writer<W> {
+             }
+             crate::Expression::GlobalVariable(handle) => {
+                 let name = &self.names[&NameKey::GlobalVariable(handle)];
+-                write!(self.out, "{name}")?;
++                if context.module.global_variables[handle].space == crate::AddressSpace::WorkGroup {
++                    write!(self.out, "(*{name})")?;
++                } else {
++                    write!(self.out, "{name}")?;
++                }
+             }
+             crate::Expression::LocalVariable(handle) => {
+                 let name_key = match context.origin {
+@@ -3605,13 +3619,18 @@ impl<W: Write> Writer<W> {
+                 )?;
+             }
+             for (index, &handle) in pass_through_globals.iter().enumerate() {
++                let var = &module.global_variables[handle];
++                let pointer_type = match var.space {
++                    crate::AddressSpace::WorkGroup => PointerType::Pointer,
++                    _ => PointerType::Reference,
++                };
+                 let tyvar = TypedGlobalVariable {
+                     module,
+                     names: &self.names,
+                     handle,
+                     usage: fun_info[handle],
+                     binding: None,
+-                    reference: true,
++                    pointer_type,
+                 };
+                 let separator =
+                     separate(index + 1 != pass_through_globals.len() || supports_array_length);
+@@ -4115,9 +4134,7 @@ impl<W: Write> Writer<W> {
+                                         }
+                                     }
+                                     crate::ImageClass::Storage { .. } => {
+-                                        return Err(Error::UnsupportedArrayOf(
+-                                            "read-write textures".to_string(),
+-                                        ));
++                                        // Removing this error makes it work apparently
+                                     }
+                                 },
+                                 _ => {
+@@ -4145,13 +4162,19 @@ impl<W: Write> Writer<W> {
+                     }
+                 }
+ 
++                let var = &module.global_variables[handle];
++                let pointer_type = match var.space {
++                    crate::AddressSpace::WorkGroup => PointerType::Pointer,
++                    _ => PointerType::Reference,
++                };
++
+                 let tyvar = TypedGlobalVariable {
+                     module,
+                     names: &self.names,
+                     handle,
+                     usage,
+                     binding: resolved.as_ref(),
+-                    reference: true,
++                    pointer_type,
+                 };
+                 let separator = if is_first_argument {
+                     is_first_argument = false;
+@@ -4215,7 +4238,7 @@ impl<W: Write> Writer<W> {
+                         handle,
+                         usage,
+                         binding: None,
+-                        reference: false,
++                        pointer_type: PointerType::Direct,
+                     };
+                     write!(self.out, "{}", back::INDENT)?;
+                     tyvar.try_fmt(&mut self.out)?;
